@@ -32,6 +32,9 @@
   --danger-line: #6a2e62;
   --shadow: 0 12px 40px rgba(0, 20, 50, 0.45);
   --glow: rgba(84, 192, 232, 0.14);
+  --jwt-header: #fb015b;
+  --jwt-payload: #d63aff;
+  --jwt-signature: #00b9f1;
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace;
 }
@@ -380,9 +383,6 @@ button:disabled {
 }
 
 .copy-button {
-  position: absolute;
-  top: 0.3rem;
-  right: 0.3rem;
   width: 1.75rem;
   height: 1.75rem;
   display: inline-flex;
@@ -394,6 +394,12 @@ button:disabled {
   background: var(--bg-elev);
   color: var(--muted);
   cursor: pointer;
+}
+
+.token-box-wrap .copy-button {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
 }
 
 .copy-button:hover:not(:disabled) {
@@ -583,6 +589,163 @@ button:disabled {
   padding: 0;
   font-size: 1.05rem;
   line-height: 1;
+}
+
+.hint {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.jwt-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.jwt-input-wrap .jwt-input {
+  min-height: 14rem;
+  padding-right: 2.4rem;
+  word-break: break-all;
+}
+
+.jwt-encoded {
+  margin: 0.6rem 0 0;
+  padding: 0.7rem;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-height: 3rem;
+}
+
+.jwt-dot {
+  color: var(--muted);
+}
+
+.jwt-seg-header {
+  color: var(--jwt-header);
+}
+
+.jwt-seg-payload {
+  color: var(--jwt-payload);
+}
+
+.jwt-seg-signature,
+.jwt-seg-extra {
+  color: var(--jwt-signature);
+}
+
+.jwt-panel .lead {
+  margin-top: 0.35rem;
+}
+
+.jwt-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+  background: var(--bg-inset);
+}
+
+.jwt-card-header {
+  border-top: 3px solid var(--jwt-header);
+}
+
+.jwt-card-payload {
+  border-top: 3px solid var(--jwt-payload);
+}
+
+.jwt-card-signature {
+  border-top: 3px solid var(--jwt-signature);
+}
+
+.jwt-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.jwt-card-head h3 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.jwt-card-header .jwt-card-head h3 {
+  color: var(--jwt-header);
+}
+
+.jwt-card-payload .jwt-card-head h3 {
+  color: var(--jwt-payload);
+}
+
+.jwt-card-signature .jwt-card-head h3 {
+  color: var(--jwt-signature);
+}
+
+.jwt-json {
+  margin: 0;
+  padding: 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.jwt-signature {
+  color: var(--jwt-signature);
+}
+
+.json-key {
+  color: var(--accent);
+}
+
+.json-string {
+  color: var(--token-text);
+}
+
+.json-number {
+  color: var(--ok);
+}
+
+.json-bool,
+.json-null {
+  color: var(--err);
+}
+
+.jwt-claims {
+  list-style: none;
+  margin: 0;
+  padding: 0.6rem 0.75rem 0.75rem;
+}
+
+.jwt-claims li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  padding: 0.25rem 0;
+}
+
+.jwt-claims code {
+  font-family: var(--mono);
+  color: var(--accent);
+}
+
+.jwt-claim-date {
+  color: var(--muted);
 }
 
 @keyframes flash-in {

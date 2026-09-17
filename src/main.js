@@ -55,6 +55,25 @@ const messages = {
     configSaved: "Configuration « {name} » enregistrée.",
     confirmDelete: "Supprimer « {name} » ?",
     confirmDeleteAll: "Supprimer toutes les configurations et vider le stockage local ?",
+    jwt: "JWT",
+    jwtTitle: "Parser JWT",
+    jwtLead: "Collez un JSON Web Token pour afficher le header, le payload et la signature. La signature n'est pas vérifiée.",
+    jwtEncoded: "Token encodé",
+    jwtHeader: "Header décodé",
+    jwtPayload: "Payload décodé",
+    jwtSignature: "Signature",
+    jwtEmpty: "Collez un JWT pour voir son contenu.",
+    jwtInvalidFormat: "Ce n'est pas un JWT compact (trois segments séparés par des points).",
+    jwtInvalidHeader: "Impossible de décoder le header.",
+    jwtInvalidPayload: "Impossible de décoder le payload.",
+    jwtDecoded: "JWT décodé",
+    jwtUnverified: "Signature non vérifiée",
+    jwtUseAccess: "Access token",
+    jwtUseId: "ID token",
+    jwtClaims: "Claims temporels",
+    jwtExpired: "expiré",
+    jwtNotBefore: "pas encore valide",
+    jwtNoSessionJwt: "Aucun JWT dans la session Play.",
     copy: "Copier",
     copied: "Copié",
     copyFailed: "Impossible de copier dans le presse-papiers.",
@@ -116,6 +135,25 @@ const messages = {
     configSaved: "Configuration “{name}” saved.",
     confirmDelete: "Delete “{name}”?",
     confirmDeleteAll: "Delete all configurations and clear local storage?",
+    jwt: "JWT",
+    jwtTitle: "JWT parser",
+    jwtLead: "Paste a JSON Web Token to inspect its header, payload, and signature. The signature is not verified.",
+    jwtEncoded: "Encoded token",
+    jwtHeader: "Decoded header",
+    jwtPayload: "Decoded payload",
+    jwtSignature: "Signature",
+    jwtEmpty: "Paste a JWT to see its contents.",
+    jwtInvalidFormat: "This is not a compact JWT (three segments separated by dots).",
+    jwtInvalidHeader: "Could not decode the header.",
+    jwtInvalidPayload: "Could not decode the payload.",
+    jwtDecoded: "JWT decoded",
+    jwtUnverified: "Signature not verified",
+    jwtUseAccess: "Access token",
+    jwtUseId: "ID token",
+    jwtClaims: "Time claims",
+    jwtExpired: "expired",
+    jwtNotBefore: "not yet valid",
+    jwtNoSessionJwt: "No JWT in the Play session.",
     copy: "Copy",
     copied: "Copied",
     copyFailed: "Could not copy to the clipboard.",
@@ -258,6 +296,109 @@ function pretty(value) {
   }
 }
 
+function normalizeJwtInput(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^Bearer\s+/i, "")
+    .replace(/\s+/g, "");
+}
+
+function looksLikeJwt(value) {
+  const token = normalizeJwtInput(value);
+  const parts = token.split(".");
+  return parts.length === 3 && parts[0] && parts[1];
+}
+
+function sessionJwtTokens() {
+  const tokens = state.session.tokens || {};
+  return {
+    access: looksLikeJwt(tokens.access_token) ? tokens.access_token : "",
+    id: looksLikeJwt(tokens.id_token) ? tokens.id_token : "",
+  };
+}
+
+function ensureJwtPrefill() {
+  if (state.jwt.input.trim()) return;
+  const fromSession = sessionJwtTokens();
+  state.jwt.input = fromSession.access || fromSession.id || "";
+}
+
+function b64urlToBytes(segment) {
+  const padded =
+    segment.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (segment.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function decodeJwtPart(segment) {
+  const text = new TextDecoder().decode(b64urlToBytes(segment));
+  return { text, json: JSON.parse(text) };
+}
+
+function parseJwt(raw) {
+  const token = normalizeJwtInput(raw);
+  if (!token) return { empty: true };
+  const parts = token.split(".");
+  if (parts.length !== 3 || !parts[0] || !parts[1]) {
+    return { empty: false, error: "invalidFormat", parts };
+  }
+  let header = null;
+  let payload = null;
+  try {
+    header = decodeJwtPart(parts[0]).json;
+  } catch {
+    return { empty: false, error: "invalidHeader", parts };
+  }
+  try {
+    payload = decodeJwtPart(parts[1]).json;
+  } catch {
+    return { empty: false, error: "invalidPayload", parts, header };
+  }
+  return {
+    empty: false,
+    error: null,
+    parts,
+    header,
+    payload,
+    signature: parts[2] || "",
+  };
+}
+
+function highlightJson(value) {
+  const json = JSON.stringify(value, null, 2);
+  return escapeHtml(json)
+    .replace(/("(?:\\.|[^"\\])*")(\s*:)?/g, (match, str, colon) => {
+      if (colon) return `<span class="json-key">${str}</span>${colon}`;
+      return `<span class="json-string">${str}</span>`;
+    })
+    .replace(/\b(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b/g, '<span class="json-number">$1</span>')
+    .replace(/\b(true|false)\b/g, '<span class="json-bool">$1</span>')
+    .replace(/\bnull\b/g, '<span class="json-null">null</span>');
+}
+
+function formatJwtDate(seconds) {
+  const date = new Date(Number(seconds) * 1000);
+  if (Number.isNaN(date.getTime())) return String(seconds);
+  const locale = currentLanguage() === "fr" ? "fr-FR" : "en-US";
+  return date.toLocaleString(locale, { timeZoneName: "short" });
+}
+
+function jwtTimeClaims(payload) {
+  if (!payload || typeof payload !== "object") return [];
+  const now = Date.now() / 1000;
+  return ["iat", "nbf", "exp", "auth_time"]
+    .filter((claim) => payload[claim] != null && payload[claim] !== "")
+    .map((claim) => {
+      const value = Number(payload[claim]);
+      let status = "";
+      if (claim === "exp" && value < now) status = "expired";
+      if (claim === "nbf" && value > now) status = "notBefore";
+      return { claim, value, status };
+    });
+}
+
 function formatHeaders(headers) {
   return Object.entries(headers || {})
     .map(([k, v]) => `${k}: ${v}`)
@@ -277,6 +418,9 @@ const state = {
     endpoint: "",
     contentType: "application/json",
     body: "",
+  },
+  jwt: {
+    input: "",
   },
 };
 
@@ -791,34 +935,17 @@ async function copyText(value) {
   if (!ok) throw new Error("copy failed");
 }
 
-function bindCopyButtons() {
-  app.querySelectorAll(".copy-button[data-copy-key]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const key = btn.dataset.copyKey;
-      const value = {
-        authorization_code: state.session.authorizationCode,
-        access_token: state.session.tokens?.access_token,
-        refresh_token: state.session.tokens?.refresh_token,
-      }[key];
-      if (!value) return;
-      try {
-        await copyText(value);
-        btn.innerHTML = COPIED_ICON;
-        btn.title = t("copied");
-        btn.setAttribute("aria-label", t("copied"));
-        btn.classList.add("copied");
-        window.setTimeout(() => {
-          if (!btn.isConnected) return;
-          btn.innerHTML = COPY_ICON;
-          btn.title = t("copy");
-          btn.setAttribute("aria-label", t("copy"));
-          btn.classList.remove("copied");
-        }, 1500);
-      } catch {
-        showFlash("err", t("copyFailed"));
-      }
-    });
-  });
+function copyValueFor(key) {
+  const parsed = parseJwt(state.jwt.input);
+  return {
+    authorization_code: state.session.authorizationCode,
+    access_token: state.session.tokens?.access_token,
+    refresh_token: state.session.tokens?.refresh_token,
+    jwt_token: normalizeJwtInput(state.jwt.input),
+    jwt_header: parsed.header ? JSON.stringify(parsed.header, null, 2) : "",
+    jwt_payload: parsed.payload ? JSON.stringify(parsed.payload, null, 2) : "",
+    jwt_signature: parsed.signature || "",
+  }[key];
 }
 
 function playView() {
@@ -895,6 +1022,163 @@ function playView() {
   `;
 }
 
+function jwtEncodedPreviewHtml(parsed) {
+  if (parsed.empty) return "";
+  const parts = parsed.parts || [];
+  const names = ["header", "payload", "signature"];
+  return parts
+    .map(
+      (part, index) =>
+        `<span class="jwt-seg jwt-seg-${names[index] || "extra"}">${escapeHtml(part)}</span>`,
+    )
+    .join('<span class="jwt-dot">.</span>');
+}
+
+function jwtStatusHtml(parsed) {
+  if (parsed.empty) {
+    return `<span class="badge">${escapeHtml(t("jwtEmpty"))}</span>`;
+  }
+  if (parsed.error === "invalidFormat") {
+    return `<span class="badge err">${escapeHtml(t("jwtInvalidFormat"))}</span>`;
+  }
+  if (parsed.error === "invalidHeader") {
+    return `<span class="badge err">${escapeHtml(t("jwtInvalidHeader"))}</span>`;
+  }
+  if (parsed.error === "invalidPayload") {
+    return `<span class="badge err">${escapeHtml(t("jwtInvalidPayload"))}</span>`;
+  }
+  return `
+    <span class="badge ok">${escapeHtml(t("jwtDecoded"))}</span>
+    <span class="badge">${escapeHtml(t("jwtUnverified"))}</span>
+  `;
+}
+
+function jwtJsonPanel(title, json, copyKey, extraClass = "") {
+  const hasValue = json != null;
+  return `
+    <section class="jwt-card ${extraClass}">
+      <div class="jwt-card-head">
+        <h3>${escapeHtml(title)}</h3>
+        <button type="button" class="copy-button" data-copy-key="${copyKey}" ${hasValue ? "" : "disabled"} title="${t("copy")}" aria-label="${t("copy")}">${COPY_ICON}</button>
+      </div>
+      <pre class="jwt-json">${hasValue ? highlightJson(json) : "—"}</pre>
+    </section>
+  `;
+}
+
+function jwtClaimsHtml(payload) {
+  const claims = jwtTimeClaims(payload);
+  if (!claims.length) return "";
+  return `
+    <section class="jwt-card">
+      <div class="jwt-card-head">
+        <h3>${escapeHtml(t("jwtClaims"))}</h3>
+      </div>
+      <ul class="jwt-claims">
+        ${claims
+          .map((item) => {
+            const badge =
+              item.status === "expired"
+                ? `<span class="badge err">${escapeHtml(t("jwtExpired"))}</span>`
+                : item.status === "notBefore"
+                  ? `<span class="badge err">${escapeHtml(t("jwtNotBefore"))}</span>`
+                  : "";
+            return `<li><code>${escapeHtml(item.claim)}</code> <span>${escapeHtml(String(item.value))}</span> <span class="jwt-claim-date">${escapeHtml(formatJwtDate(item.value))}</span> ${badge}</li>`;
+          })
+          .join("")}
+      </ul>
+    </section>
+  `;
+}
+
+function jwtDecodedInnerHtml() {
+  const parsed = parseJwt(state.jwt.input);
+  if (parsed.empty) {
+    return `<p class="lead">${t("jwtEmpty")}</p>`;
+  }
+  return `
+    ${jwtJsonPanel(t("jwtHeader"), parsed.header, "jwt_header", "jwt-card-header")}
+    ${jwtJsonPanel(t("jwtPayload"), parsed.payload, "jwt_payload", "jwt-card-payload")}
+    <section class="jwt-card jwt-card-signature">
+      <div class="jwt-card-head">
+        <h3>${escapeHtml(t("jwtSignature"))}</h3>
+        <button type="button" class="copy-button" data-copy-key="jwt_signature" ${parsed.signature ? "" : "disabled"} title="${t("copy")}" aria-label="${t("copy")}">${COPY_ICON}</button>
+      </div>
+      <pre class="jwt-json jwt-signature">${parsed.signature ? escapeHtml(parsed.signature) : "—"}</pre>
+    </section>
+    ${jwtClaimsHtml(parsed.payload)}
+  `;
+}
+
+function jwtEncodedView() {
+  const parsed = parseJwt(state.jwt.input);
+  const fromSession = sessionJwtTokens();
+  return `
+    <div class="play-head">
+      <h2>${t("jwtTitle")}</h2>
+    </div>
+    <p class="lead">${t("jwtLead")}</p>
+    <div class="jwt-status" id="jwt-status">${jwtStatusHtml(parsed)}</div>
+    <label>${t("jwtEncoded")}</label>
+    <div class="token-box-wrap jwt-input-wrap">
+      <textarea id="jwt-input" class="jwt-input" spellcheck="false" placeholder="xxxxx.yyyyy.zzzzz">${escapeHtml(state.jwt.input)}</textarea>
+      <button type="button" class="copy-button" data-copy-key="jwt_token" ${normalizeJwtInput(state.jwt.input) ? "" : "disabled"} title="${t("copy")}" aria-label="${t("copy")}">${COPY_ICON}</button>
+    </div>
+    <pre class="jwt-encoded" id="jwt-encoded-preview">${jwtEncodedPreviewHtml(parsed)}</pre>
+    <div class="actions">
+      <button class="ghost" id="btn-jwt-access" ${fromSession.access ? "" : "disabled"}>${t("jwtUseAccess")}</button>
+      <button class="ghost" id="btn-jwt-id" ${fromSession.id ? "" : "disabled"}>${t("jwtUseId")}</button>
+      <button class="small" id="btn-jwt-clear">${t("clear")}</button>
+    </div>
+    ${!fromSession.access && !fromSession.id ? `<p class="hint">${t("jwtNoSessionJwt")}</p>` : ""}
+  `;
+}
+
+function jwtDecodedView() {
+  return `<div id="jwt-decoded">${jwtDecodedInnerHtml()}</div>`;
+}
+
+function refreshJwtPanels() {
+  const parsed = parseJwt(state.jwt.input);
+  const status = app.querySelector("#jwt-status");
+  const preview = app.querySelector("#jwt-encoded-preview");
+  const decoded = app.querySelector("#jwt-decoded");
+  const copyToken = app.querySelector('[data-copy-key="jwt_token"]');
+  if (status) status.innerHTML = jwtStatusHtml(parsed);
+  if (preview) preview.innerHTML = jwtEncodedPreviewHtml(parsed);
+  if (decoded) decoded.innerHTML = jwtDecodedInnerHtml();
+  if (copyToken) copyToken.disabled = !normalizeJwtInput(state.jwt.input);
+}
+
+function bindJwtEvents() {
+  app.querySelector("#jwt-input")?.addEventListener("input", (e) => {
+    state.jwt.input = e.target.value;
+    refreshJwtPanels();
+  });
+  app.querySelector("#btn-jwt-access")?.addEventListener("click", () => {
+    const { access } = sessionJwtTokens();
+    if (!access) return;
+    state.jwt.input = access;
+    const input = app.querySelector("#jwt-input");
+    if (input) input.value = access;
+    refreshJwtPanels();
+  });
+  app.querySelector("#btn-jwt-id")?.addEventListener("click", () => {
+    const { id } = sessionJwtTokens();
+    if (!id) return;
+    state.jwt.input = id;
+    const input = app.querySelector("#jwt-input");
+    if (input) input.value = id;
+    refreshJwtPanels();
+  });
+  app.querySelector("#btn-jwt-clear")?.addEventListener("click", () => {
+    state.jwt.input = "";
+    const input = app.querySelector("#jwt-input");
+    if (input) input.value = "";
+    refreshJwtPanels();
+  });
+}
+
 function render() {
   const configs = state.store.configs;
   const themeIcon = { auto: "◐", light: "☀", dark: "☾" }[state.preferences.theme];
@@ -914,6 +1198,7 @@ function render() {
       <nav class="tabs">
         <button data-tab="settings" class="${state.tab === "settings" ? "active" : ""}">${t("settings")}</button>
         <button data-tab="play" class="${state.tab === "play" ? "active" : ""}">${t("play")}</button>
+        <button data-tab="jwt" class="${state.tab === "jwt" ? "active" : ""}">${t("jwt")}</button>
       </nav>
       <div class="topbar-right">
         <select class="config-select" id="config-select">
@@ -929,13 +1214,19 @@ function render() {
       </div>
     </header>
     <div class="layout">
-      <section class="panel">${state.tab === "settings" ? settingsView() : playView()}</section>
-      <aside class="panel trace-panel">
+      <section class="panel">${state.tab === "settings" ? settingsView() : state.tab === "jwt" ? jwtEncodedView() : playView()}</section>
+      <aside class="panel ${state.tab === "jwt" ? "jwt-panel" : "trace-panel"}">
+        ${
+          state.tab === "jwt"
+            ? jwtDecodedView()
+            : `
         <div class="trace-head">
           <h2>${t("requestsResponses")}</h2>
           <button class="small" id="btn-clear-traces">${t("clear")}</button>
         </div>
         ${renderTraces()}
+        `
+        }
       </aside>
     </div>
   `;
@@ -945,6 +1236,7 @@ function render() {
       readForm();
       state.tab = btn.dataset.tab;
       if (state.tab === "settings") syncDraftFromActive();
+      if (state.tab === "jwt") ensureJwtPrefill();
       render();
     });
   });
@@ -972,7 +1264,7 @@ function render() {
     render();
   });
 
-  app.querySelector("#btn-clear-traces").addEventListener("click", () => {
+  app.querySelector("#btn-clear-traces")?.addEventListener("click", () => {
     state.traces = [];
     persistSession();
     render();
@@ -1007,16 +1299,21 @@ function readForm() {
       clientAuth: g("#f-cauth").value,
       usePkce: g("#f-pkce").checked,
     };
-  } else {
-    const method = app.querySelector("#api-method");
-    if (!method) return;
-    state.api = {
-      method: method.value,
-      endpoint: app.querySelector("#api-url").value,
-      contentType: app.querySelector("#api-ct").value,
-      body: app.querySelector("#api-body").value,
-    };
+    return;
   }
+  if (state.tab === "jwt") {
+    const input = app.querySelector("#jwt-input");
+    if (input) state.jwt.input = input.value;
+    return;
+  }
+  const method = app.querySelector("#api-method");
+  if (!method) return;
+  state.api = {
+    method: method.value,
+    endpoint: app.querySelector("#api-url").value,
+    contentType: app.querySelector("#api-ct").value,
+    body: app.querySelector("#api-body").value,
+  };
 }
 
 function bindTabEvents() {
@@ -1039,7 +1336,11 @@ function bindTabEvents() {
     return;
   }
 
-  bindCopyButtons();
+  if (state.tab === "jwt") {
+    bindJwtEvents();
+    return;
+  }
+
   app.querySelector("#btn-reset-steps")?.addEventListener("click", resetSteps);
   app.querySelector("#btn-auth")?.addEventListener("click", startAuthorize);
   app.querySelector("#btn-exchange")?.addEventListener("click", () => {
@@ -1074,6 +1375,29 @@ if (state.store.configs.length && !state.session.authorizationCode && !state.ses
   state.tab = "play";
 }
 render();
+
+app.addEventListener("click", async (event) => {
+  const btn = event.target.closest(".copy-button[data-copy-key]");
+  if (!btn || btn.disabled) return;
+  const value = copyValueFor(btn.dataset.copyKey);
+  if (!value) return;
+  try {
+    await copyText(value);
+    btn.innerHTML = COPIED_ICON;
+    btn.title = t("copied");
+    btn.setAttribute("aria-label", t("copied"));
+    btn.classList.add("copied");
+    window.setTimeout(() => {
+      if (!btn.isConnected) return;
+      btn.innerHTML = COPY_ICON;
+      btn.title = t("copy");
+      btn.setAttribute("aria-label", t("copy"));
+      btn.classList.remove("copied");
+    }, 1500);
+  } catch {
+    showFlash("err", t("copyFailed"));
+  }
+});
 
 window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
   if (state.preferences.theme === "auto") applyPreferences();
